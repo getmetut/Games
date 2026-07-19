@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Первобытные</title>
+<style>
+  :root{
+    --bg:#0e1116;
+    --surface-1:#1a2029;
+    --surface-2:#232b35;
+    --border:#2e3742;
+    --text:#e6edf3;
+    --text-secondary:#8b98a5;
+    --accent:#378ADD;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    -webkit-text-size-adjust:100%;
+    min-height:100vh;
+    padding:16px;
+    padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:640px;margin:0 auto;}
+  .emo{font-style:normal;line-height:1;display:inline-block;}
+  a.back{display:inline-flex;align-items:center;gap:6px;color:var(--text-secondary);text-decoration:none;font-size:14px;margin:0 0 10px;}
+  .hud{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 10px;flex-wrap:wrap;}
+  .hud .stat{font-size:14px;color:var(--text-secondary);}
+  .hud .stat b{color:var(--text);font-size:16px;font-weight:600;}
+  #stage{position:relative;height:min(340px,48vh);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface-1);}
+  #world{display:block;width:100%;height:100%;}
+  #overlay{
+    position:absolute;inset:0;z-index:5;
+    background:rgba(14,17,22,0.84);backdrop-filter:blur(3px);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;
+    padding:20px;text-align:center;
+  }
+  #overlay.hidden{display:none;}
+  #ovtitle{font-size:20px;font-weight:700;}
+  #ovtext{font-size:14px;color:var(--text-secondary);max-width:440px;line-height:1.55;}
+  #ovbtn{
+    font-family:inherit;font-size:15px;font-weight:600;
+    color:#fff;background:var(--accent);
+    border:0;border-radius:10px;padding:11px 24px;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #ovbtn:active{transform:translateY(1px);}
+  #event{min-height:20px;font-size:13px;color:var(--text-secondary);margin:8px 2px 0;transition:opacity .6s;}
+  .legend{font-size:11px;color:var(--text-secondary);margin:2px 2px 0;}
+  .panel{margin-top:12px;background:var(--surface-1);border:0.5px solid var(--border);border-radius:12px;padding:12px;}
+  .panel .ptitle{font-size:13px;color:var(--text-secondary);margin:0 0 10px;}
+  .tools{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}
+  .tool{
+    font-family:inherit;font-size:13px;font-weight:600;
+    padding:8px 12px;border-radius:8px;
+    border:1px solid var(--border);background:var(--surface-2);color:var(--text);
+    cursor:pointer;-webkit-tap-highlight-color:transparent;
+  }
+  .tool.active{border-color:var(--accent);color:#6FB2F0;background:rgba(55,138,221,0.12);}
+  .tool:disabled{opacity:0.38;cursor:default;}
+  .tools .spacer{flex:1;}
+  .tool.ok{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .tool:active:not(:disabled){transform:translateY(1px);}
+  #gridwrap{display:flex;justify-content:center;}
+  #grid{touch-action:none;border-radius:8px;display:block;}
+  #verdict{min-height:18px;font-size:13px;color:var(--text-secondary);margin-top:8px;text-align:center;transition:opacity .5s;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<a class="back" href="../">← Все игры</a>
+<div class="hud">
+  <div style="display:flex;gap:16px;align-items:baseline;">
+    <span style="font-size:17px;font-weight:700;"><span class="emo" aria-hidden="true">🗿</span> Первобытные</span>
+  </div>
+  <div style="display:flex;gap:14px;align-items:baseline;">
+    <span class="stat"><span class="emo" aria-hidden="true">👥</span> <b id="pop">4</b></span>
+    <span class="stat"><span class="emo" aria-hidden="true">☀️</span> день <b id="day">1</b></span>
+  </div>
+</div>
+<div id="stage">
+  <canvas id="world"></canvas>
+  <div id="overlay">
+    <div id="ovtitle">🗿 Первобытные</div>
+    <div id="ovtext">Твоё племя ничего не умеет. Люди бродят, голодают и бормочут «что же делать».<br><br>
+    Рисуй на поле внизу — отрезками, по клеткам. Если племя поймёт рисунок, вещь появится в их мире.<br>
+    Прислушивайся к бормотанию — там подсказки.</div>
+    <button id="ovbtn">Начать</button>
+  </div>
+</div>
+<div id="event">&nbsp;</div>
+<div class="legend">Полоски над головой: <span style="color:#57b768;">❤ здоровье</span> · <span style="color:#EF9F27;">🍖 сытость</span> · <span style="color:#e77fb3;">😊 веселье</span></div>
+<div class="panel">
+  <div class="ptitle">Поле для рисования — зажми и веди, чтобы провести отрезок по клеткам. Потом нажми «Показать племени».</div>
+  <div class="tools">
+    <button class="tool active" id="toolseg">─ Отрезок</button>
+    <button class="tool" disabled title="Откроется позже">○ 🔒</button>
+    <button class="tool" disabled title="Откроется позже">◠ 🔒</button>
+    <span class="spacer"></span>
+    <button class="tool" id="clearbtn">✕ Стереть</button>
+    <button class="tool ok" id="okbtn">✓ Показать племени</button>
+  </div>
+  <div id="gridwrap"><canvas id="grid"></canvas></div>
+  <div id="verdict">&nbsp;</div>
+</div>
+</div>
+<script>
+'use strict';
+/* ================= утилиты ================= */
+const $=id=>document.getElementById(id);
+const rand=(a,b)=>a+Math.random()*(b-a);
+const irnd=(a,b)=>Math.floor(a+Math.random()*(b-a+1));
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const FONT='-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+
+/* ================= мир ================= */
+const wc=$('world'), wx=wc.getContext('2d');
+let W=0,H=0,stars=[];
+function resizeWorld(){
+  const r=wc.parentElement.getBoundingClientRect();
+  W=Math.max(200,Math.round(r.width)); H=Math.max(160,Math.round(r.height));
+  const d=window.devicePixelRatio||1;
+  wc.width=Math.round(W*d); wc.height=Math.round(H*d);
+  wx.setTransform(d,0,0,d,0,0);
+  stars=[];
+  for(let i=0;i<42;i++)stars.push({x:Math.random()*W,y:Math.random()*H*0.42,r:Math.random()*1.1+0.4,tw:Math.random()*6.28});
+  if(people)for(const p of people){p.x=clamp(p.x,20,W-20);p.y=clamp(p.y,gy0(),gy1());}
+  if(tree)tree.x=clamp(tree.x,50,W-50);
+}
+const gy0=()=>H*0.62, gy1=()=>H-18;
+
+/* ================= состояние ================= */
+const NAMES=['Ух','Ах','Ом','Га'];
+const DAY=45, RATE_H=1.05, RATE_F=0.45;
+let people=null, tree=null, ancient=null;
+let pending=0, days=1, dayT=0, running=false, over=false, overShown=false, overT=0, lastCause='starve';
+
+function makePerson(name){
+  return {
+    name, x:rand(40,W-40), y:rand(gy0(),gy1()),
+    tx:0, ty:0, hasTarget:false, idleT:rand(0.5,2),
+    hp:100, hunger:rand(30,45), fun:rand(60,85),
+    spear:false, state:'wander', t:0, dir:1, phase:rand(0,6),
+    speed:rand(16,22), moving:false,
+    speech:'', speechT:0, mutterT:rand(1.5,5),
+    huntCd:rand(6,14), edgeX:0, meat:false,
+    alive:true, gone:false, deadT:0, removed:false
+  };
+}
+function reset(){
+  people=NAMES.map(makePerson);
+  tree=null; ancient=null; pending=0;
+  days=1; dayT=0; over=false; overShown=false; overT=0; lastCause='starve';
+  filled.clear(); previewCells.clear(); renderGrid();
+  setVerdict('');
+  $('pop').textContent='4'; $('day').textContent='1';
+}
+
+/* ================= сообщения ================= */
+let evTimer=null, vdTimer=null;
+function setEvent(t){
+  const el=$('event'); el.textContent=t; el.style.opacity='1';
+  clearTimeout(evTimer); evTimer=setTimeout(()=>{el.style.opacity='0.25';},4500);
+}
+function setVerdict(t){
+  const el=$('verdict'); el.innerHTML=t||'&nbsp;'; el.style.opacity='1';
+  clearTimeout(vdTimer); if(t)vdTimer=setTimeout(()=>{el.style.opacity='0';},3500);
+}
+function say(p,txt,dur){p.speech=txt;p.speechT=dur||2.4;}
+
+function phrase(p){
+  const arr=[];
+  const hasTech=tree||people.some(q=>q.alive&&q.spear);
+  if(p.hunger>55){
+    arr.push('Есть хочется…','В животе урчит…');
+    if(!hasTech)arr.push('Вот бы длинную острую палку…','Чем бы добыть мясо?..','Палка… нужна острая палка…');
+  }
+  if(p.fun<25)arr.push('Скучно…','Тоска…');
+  if(p.spear)arr.push('Моё копьё!','Ух, скоро охота!');
+  arr.push('Что же делать?..','Что же делать…','Ух…','Угу…');
+  return pick(arr);
+}
+
+/* ================= движение ================= */
+function moveTo(p,tx,ty,speed,dt){
+  const dx=tx-p.x, dy=ty-p.y, d=Math.hypot(dx,dy);
+  if(d<3){p.moving=false;return true;}
+  p.dir=dx<0?-1:1;
+  const st=Math.min(d,speed*dt);
+  p.x+=dx/d*st; p.y+=dy/d*st;
+  p.moving=true; p.phase+=dt*9;
+  return false;
+}
+function aliveOnScreen(){return people.filter(p=>p.alive&&!p.gone);}
+function aliveAll(){return people.filter(p=>p.alive);}
+function avgHunger(){
+  const a=aliveAll(); if(!a.length)return 0;
+  return a.reduce((s,p)=>s+p.hunger,0)/a.length;
+}
+function kill(p,cause){
+  p.alive=false; p.state='dead'; p.deadT=0; p.speech=''; p.meat=false;
+  if(p.gone)p.removed=true;
+  lastCause=cause;
+  $('pop').textContent=String(aliveAll().length);
+}
+
+/* ================= симуляция ================= */
+function update(dt){
+  if(!running||over&&overShown)return;
+  dayT+=dt;
+  if(dayT>=DAY){dayT-=DAY;days++;$('day').textContent=String(days);}
+
+  /* назначение: кто идёт к дереву за палкой */
+  if(tree&&tree.ready&&pending>0&&!ancient){
+    const cand=aliveOnScreen().filter(p=>!p.spear&&p.state==='wander');
+    if(cand.length){
+      cand.sort((a,b)=>Math.abs(a.x-tree.x)-Math.abs(b.x-tree.x));
+      cand[0].state='toTree'; say(cand[0],'Пойду отломаю ветку!');
+      pending--;
+    }
+  }
+
+  for(const p of people){
+    if(!p.alive){p.deadT+=dt; if(p.deadT>7)p.removed=true; continue;}
+
+    p.hunger=clamp(p.hunger+RATE_H*dt,0,100);
+    p.fun=clamp(p.fun-RATE_F*dt,0,100);
+    if(p.hunger>=100)p.hp-=3*dt;
+    else if(p.hunger<30)p.hp=Math.min(100,p.hp+0.6*dt);
+    if(p.hp<=0){kill(p,'starve');setEvent('💀 '+p.name+' умер от голода…');continue;}
+
+    p.huntCd-=dt;
+    if(p.speechT>0)p.speechT-=dt;
+    p.mutterT-=dt;
+    if(p.mutterT<=0&&p.speechT<=0&&!p.gone&&p.state!=='fleeing'){
+      say(p,phrase(p)); p.mutterT=rand(3.5,8);
+    }
+
+    if(ancient&&!p.gone&&p.state!=='fleeing'&&p.state!=='gone'){
+      p.state='fleeing'; say(p,'А-А-А!',3);
+    }
+
+    switch(p.state){
+      case 'wander':{
+        if(!p.hasTarget){
+          p.idleT-=dt;
+          if(p.idleT<=0){
+            p.tx=rand(24,W-24); p.ty=rand(gy0(),gy1()); p.hasTarget=true;
+          }else p.moving=false;
+        }else if(moveTo(p,p.tx,p.ty,p.speed,dt)){
+          p.hasTarget=false; p.idleT=rand(1,4);
+        }
+        /* решение пойти на охоту */
+        if(p.spear&&p.huntCd<=0&&avgHunger()>35&&!ancient){
+          p.state='toEdge';
+          p.edgeX=p.x<W/2?-34:W+34;
+          say(p,'Пойду на охоту!');
+        }
+        break;
+      }
+      case 'toTree':{
+        if(!tree){p.state='wander';break;}
+        if(moveTo(p,tree.x+16,clamp(tree.y,gy0(),gy1()),p.speed*1.2,dt)){
+          p.state='sharp'; p.t=3;
+          tree.taken++;
+          say(p,'Хрусь! *отломал ветку*',2.2);
+          const unarmed=aliveAll().filter(q=>!q.spear).length;
+          if(unarmed===1){ /* этот последний как раз точит */ }
+        }
+        break;
+      }
+      case 'sharp':{
+        p.moving=false; p.t-=dt;
+        if(p.speechT<=0&&p.t>0.6)say(p,'шкряб-шкряб…',1.4);
+        if(p.t<=0){
+          p.spear=true; say(p,'Копьё!',2.5);
+          setEvent('🔱 '+p.name+' заточил палку — теперь у него копьё!');
+          p.state='wander'; p.hasTarget=false; p.huntCd=rand(2,6);
+          const unarmed=aliveAll().filter(q=>!q.spear).length;
+          if(unarmed===1&&tree){tree.angryEyes=true;setEvent('🌳 Дерево как-то недобро скрипит…');}
+          if(unarmed===0&&tree&&!tree.doom){tree.doom=true;tree.doomT=1.6;}
+        }
+        break;
+      }
+      case 'toEdge':{
+        if(moveTo(p,p.edgeX,p.y,p.speed*1.3,dt)){
+          p.state='gone'; p.gone=true; p.t=rand(6,11); p.moving=false;
+        }
+        break;
+      }
+      case 'gone':{
+        p.t-=dt;
+        if(p.t<=0){
+          if(Math.random()<0.12){
+            kill(p,'hunt');
+            setEvent('😢 '+p.name+' не вернулся с охоты…');
+          }else{
+            p.state='return'; p.gone=false; p.meat=true;
+            p.x=p.edgeX; p.tx=rand(W*0.3,W*0.7); p.ty=rand(gy0(),gy1());
+          }
+        }
+        break;
+      }
+      case 'return':{
+        if(moveTo(p,p.tx,p.ty,p.speed*1.3,dt)){
+          p.meat=false;
+          const dmg=Math.random()<0.25?irnd(20,40):irnd(3,12);
+          p.hp-=dmg;
+          for(const q of aliveAll()){
+            q.hunger=Math.max(0,q.hunger-65);
+            q.fun=Math.min(100,q.fun+25);
+            if(q!==p&&!q.gone)say(q,pick(['Ням-ням!','Еда!','Мясо!']),2.2);
+          }
+          if(dmg>=20)setEvent('🍖 '+p.name+' принёс добычу, но серьёзно ранен (−'+dmg+'❤)');
+          else setEvent('🍖 '+p.name+' вернулся с добычей! Племя ест.');
+          say(p,'Добыча!',2.4);
+          if(p.hp<=0){kill(p,'hunt');setEvent('💀 '+p.name+' умер от ран после охоты…');}
+          else{p.state='wander';p.hasTarget=false;p.huntCd=rand(18,26);}
+        }
+        break;
+      }
+      case 'fleeing':{
+        if(ancient){
+          const away=p.x<ancient.x?-1:1;
+          p.dir=away; p.moving=true; p.phase+=dt*13;
+          p.x=clamp(p.x+away*60*dt,10,W-10);
+          p.y=clamp(p.y+Math.sin(p.phase*0.7)*20*dt,gy0(),gy1());
+        }else{p.state='wander';p.hasTarget=false;}
+        break;
+      }
+    }
+  }
+
+  /* дерево */
+  if(tree){
+    if(!tree.ready){
+      tree.grow=Math.min(1,tree.grow+dt/2.2);
+      if(tree.grow>=1)tree.ready=true;
+    }
+    if(tree.doom){
+      tree.doomT-=dt;
+      if(tree.doomT<=0){
+        ancient={x:tree.x,y:clamp(tree.y,gy0(),gy1()),phase:'rise',t:1.6,step:0};
+        tree=null;
+        setEvent('🌳 Дерево ВОССТАЛО! Это Древень!');
+      }
+    }
+  }
+
+  /* древень */
+  if(ancient){
+    if(ancient.phase==='rise'){
+      ancient.t-=dt;
+      if(ancient.t<=0)ancient.phase='chase';
+    }else{
+      const targets=aliveOnScreen();
+      if(targets.length){
+        targets.sort((a,b)=>Math.hypot(a.x-ancient.x,a.y-ancient.y)-Math.hypot(b.x-ancient.x,b.y-ancient.y));
+        const tgt=targets[0];
+        const dx=tgt.x-ancient.x, dy=tgt.y-ancient.y, d=Math.hypot(dx,dy)||1;
+        ancient.x+=dx/d*74*dt; ancient.y=clamp(ancient.y+dy/d*40*dt,gy0(),gy1());
+        ancient.step+=dt*6;
+        if(d<26){kill(tgt,'ancient');setEvent('💀 Древень схватил '+tgt.name+'!');}
+      }
+    }
+  }
+
+  /* конец игры */
+  if(!over&&aliveAll().length===0){over=true;overT=0;}
+  if(over&&!overShown){
+    overT+=dt;
+    if(overT>1.4){
+      overShown=true;
+      const msg=lastCause==='ancient'
+        ?'🌳 Древень восстал и уничтожил племя.<br>Не стоило отдавать ему все ветки…'
+        :'💀 Племя вымерло.';
+      showOverlay('Конец', msg+'<br><br>Прожито дней: '+days,'Заново');
+    }
+  }
+}
+
+/* ================= отрисовка мира ================= */
+function roundRect(c,x,y,w,h,r){
+  c.beginPath();
+  c.moveTo(x+r,y);c.arcTo(x+w,y,x+w,y+h,r);c.arcTo(x+w,y+h,x,y+h,r);
+  c.arcTo(x,y+h,x,y,r);c.arcTo(x,y,x+w,y,r);c.closePath();
+}
+function bubble(x,y,text){
+  wx.font='11px '+FONT;
+  const tw=wx.measureText(text).width, w=tw+14;
+  const bx=clamp(x-w/2,4,W-w-4), by=y-20;
+  wx.fillStyle='rgba(230,237,243,0.93)';
+  roundRect(wx,bx,by,w,17,7); wx.fill();
+  wx.beginPath();
+  wx.moveTo(clamp(x,bx+8,bx+w-8)-4,by+17);
+  wx.lineTo(clamp(x,bx+8,bx+w-8)+4,by+17);
+  wx.lineTo(clamp(x,bx+8,bx+w-8),by+22);
+  wx.closePath(); wx.fill();
+  wx.fillStyle='#16202b';
+  wx.fillText(text,bx+7,by+12);
+}
+function bar(x,y,w,f,col){
+  wx.fillStyle='rgba(0,0,0,0.45)'; wx.fillRect(x,y,w,3);
+  wx.fillStyle=col; wx.fillRect(x,y,w*clamp(f,0,1),3);
+}
+function drawPerson(p,now){
+  if(p.removed||p.gone)return;
+  wx.save();
+  wx.translate(p.x,p.y);
+  if(!p.alive){
+    wx.globalAlpha=clamp(1-(p.deadT-4)/3,0,1);
+    wx.rotate(p.dir*Math.PI/2);
+  }
+  const sw=p.moving?Math.sin(p.phase):0;
+  const skin='#c98a5b', hair='#4a3320';
+  wx.strokeStyle=skin; wx.lineWidth=2.4; wx.lineCap='round';
+  /* ноги */
+  wx.beginPath();
+  wx.moveTo(0,-11);wx.lineTo(-3+sw*3.5,0);
+  wx.moveTo(0,-11);wx.lineTo(3-sw*3.5,0);
+  wx.stroke();
+  /* тело */
+  wx.fillStyle=skin;
+  roundRect(wx,-4,-23,8,13,3); wx.fill();
+  /* руки */
+  wx.beginPath();
+  if(p.state==='sharp'){
+    wx.moveTo(0,-19);wx.lineTo(7*p.dir,-14+Math.sin(now*14)*2);
+    wx.moveTo(0,-19);wx.lineTo(-5*p.dir,-13);
+  }else{
+    wx.moveTo(0,-19);wx.lineTo(-4-sw*2,-11);
+    wx.moveTo(0,-19);wx.lineTo(4+sw*2,-11);
+  }
+  wx.stroke();
+  /* голова */
+  wx.beginPath();wx.arc(0,-28,5.2,0,6.29);wx.fill();
+  wx.fillStyle=hair;
+  wx.beginPath();wx.arc(0,-29.5,5.2,Math.PI,2*Math.PI);wx.fill();
+  wx.fillStyle='#16202b';
+  wx.fillRect(p.dir*2,-29,1.6,1.6);
+  /* копьё */
+  if(p.spear){
+    wx.strokeStyle='#8a6b43'; wx.lineWidth=2;
+    wx.beginPath();
+    wx.moveTo(p.dir*6,-6);wx.lineTo(p.dir*11,-34);
+    wx.stroke();
+    wx.fillStyle='#9aa7b3';
+    wx.beginPath();
+    wx.moveTo(p.dir*11,-34);wx.lineTo(p.dir*13.5,-38.5);wx.lineTo(p.dir*8.5,-38.5);
+    wx.closePath();wx.fill();
+  }
+  /* мясо */
+  if(p.meat){wx.font='13px '+FONT;wx.fillText('🍖',p.dir*-14,-14);}
+  wx.restore();
+  if(p.alive){
+    bar(p.x-10,p.y-44,20,p.hp/100,'#57b768');
+    bar(p.x-10,p.y-40,20,(100-p.hunger)/100,'#EF9F27');
+    bar(p.x-10,p.y-36,20,p.fun/100,'#e77fb3');
+    if(p.speechT>0)bubble(p.x,p.y-48,p.speech);
+  }
+}
+function drawTree(now){
+  const g=tree.grow, x=tree.x, y=clamp(tree.y,gy0(),gy1());
+  wx.save();
+  if(tree.doom)wx.translate(Math.sin(now*32)*3,0);
+  wx.translate(x,y);
+  wx.scale(g,g);
+  /* ствол */
+  wx.fillStyle='#7a5533';
+  wx.fillRect(-7,-58,14,58);
+  /* ветки-палки (сколько осталось) */
+  wx.strokeStyle='#8a6b43'; wx.lineWidth=3; wx.lineCap='round';
+  const left=Math.max(0,4-tree.taken);
+  for(let i=0;i<left;i++){
+    const s=i%2?1:-1, yy=-22-i*9;
+    wx.beginPath();wx.moveTo(s*6,yy);wx.lineTo(s*22,yy-9);wx.stroke();
+  }
+  /* крона */
+  wx.fillStyle='#3f7d3f';
+  wx.beginPath();wx.arc(0,-72,24,0,6.29);wx.fill();
+  wx.beginPath();wx.arc(-17,-60,17,0,6.29);wx.fill();
+  wx.beginPath();wx.arc(17,-60,17,0,6.29);wx.fill();
+  wx.fillStyle='#4b8f4b';
+  wx.beginPath();wx.arc(-6,-76,12,0,6.29);wx.fill();
+  /* злые глаза */
+  if(tree.angryEyes||tree.doom){
+    wx.fillStyle=tree.doom?'#ff5544':'#d8b13a';
+    wx.beginPath();wx.arc(-4,-44,2.4,0,6.29);wx.fill();
+    wx.beginPath();wx.arc(4,-44,2.4,0,6.29);wx.fill();
+  }
+  wx.restore();
+}
+function drawAncient(now){
+  const a=ancient;
+  const rise=a.phase==='rise'?1-Math.max(0,a.t)/1.6:1;
+  wx.save();
+  wx.translate(a.x,a.y);
+  if(a.phase==='rise')wx.translate(Math.sin(now*30)*2.5,0);
+  const lift=rise*22;
+  /* ноги-корни */
+  if(rise>0.4){
+    wx.strokeStyle='#6b4a2a'; wx.lineWidth=6; wx.lineCap='round';
+    const st=Math.sin(a.step)*6;
+    wx.beginPath();
+    wx.moveTo(-8,-lift);wx.lineTo(-11+st,0);
+    wx.moveTo(8,-lift);wx.lineTo(11-st,0);
+    wx.stroke();
+  }
+  /* ствол-тело */
+  wx.fillStyle='#6b4a2a';
+  wx.fillRect(-13,-70-lift,26,70);
+  /* руки-ветви */
+  wx.strokeStyle='#6b4a2a'; wx.lineWidth=5;
+  wx.beginPath();
+  wx.moveTo(-12,-52-lift);wx.lineTo(-34,-70-lift+Math.sin(now*8)*4);
+  wx.moveTo(12,-52-lift);wx.lineTo(34,-70-lift-Math.sin(now*8)*4);
+  wx.stroke();
+  /* крона */
+  wx.fillStyle='#2f5d2f';
+  wx.beginPath();wx.arc(0,-86-lift,26,0,6.29);wx.fill();
+  wx.beginPath();wx.arc(-18,-74-lift,16,0,6.29);wx.fill();
+  wx.beginPath();wx.arc(18,-74-lift,16,0,6.29);wx.fill();
+  /* глаза */
+  wx.fillStyle='#ff5544';
+  wx.beginPath();wx.arc(-6,-58-lift,3.4,0,6.29);wx.fill();
+  wx.beginPath();wx.arc(6,-58-lift,3.4,0,6.29);wx.fill();
+  /* пасть */
+  wx.fillStyle='#2a1a0e';
+  wx.fillRect(-6,-48-lift,12,4);
+  wx.restore();
+}
+function draw(now){
+  /* небо */
+  const sky=wx.createLinearGradient(0,0,0,H);
+  sky.addColorStop(0,'#0d1420'); sky.addColorStop(0.6,'#16222f'); sky.addColorStop(1,'#1a2633');
+  wx.fillStyle=sky; wx.fillRect(0,0,W,H);
+  /* звёзды и луна */
+  for(const s of stars){
+    wx.globalAlpha=0.4+0.4*Math.sin(now*1.5+s.tw);
+    wx.fillStyle='#cfe3f5';
+    wx.fillRect(s.x,s.y,s.r,s.r);
+  }
+  wx.globalAlpha=1;
+  wx.fillStyle='#d8dfc9';
+  wx.beginPath();wx.arc(W-46,34,13,0,6.29);wx.fill();
+  wx.fillStyle='#16222f';
+  wx.beginPath();wx.arc(W-51,30,11,0,6.29);wx.fill();
+  /* земля */
+  wx.fillStyle='#233020'; wx.fillRect(0,H*0.58,W,H);
+  wx.fillStyle='#1b2519'; wx.fillRect(0,H-10,W,10);
+  /* дерево / древень */
+  if(tree)drawTree(now);
+  if(ancient)drawAncient(now);
+  /* люди (сортировка по глубине) */
+  const sorted=[...people].sort((a,b)=>a.y-b.y);
+  for(const p of sorted)drawPerson(p,now);
+}
+
+/* ================= поле рисования ================= */
+const gc=$('grid'), gx=gc.getContext('2d');
+const COLS=12, ROWS=8;
+let cell=28, gw=0, gh=0;
+const filled=new Set(), previewCells=new Set();
+let anchor=null;
+
+function resizeGrid(){
+  const w=Math.min($('gridwrap').clientWidth,560);
+  cell=Math.max(18,Math.floor(w/COLS));
+  gw=cell*COLS; gh=cell*ROWS;
+  const d=window.devicePixelRatio||1;
+  gc.style.width=gw+'px'; gc.style.height=gh+'px';
+  gc.width=Math.round(gw*d); gc.height=Math.round(gh*d);
+  gx.setTransform(d,0,0,d,0,0);
+  renderGrid();
+}
+function renderGrid(){
+  gx.fillStyle='#131922'; gx.fillRect(0,0,gw,gh);
+  gx.strokeStyle='rgba(46,55,66,0.7)'; gx.lineWidth=1;
+  for(let c=0;c<=COLS;c++){gx.beginPath();gx.moveTo(c*cell+0.5,0);gx.lineTo(c*cell+0.5,gh);gx.stroke();}
+  for(let r=0;r<=ROWS;r++){gx.beginPath();gx.moveTo(0,r*cell+0.5);gx.lineTo(gw,r*cell+0.5);gx.stroke();}
+  const paint=(key,alpha)=>{
+    const [c,r]=key.split(',').map(Number);
+    gx.fillStyle='rgba(55,138,221,'+alpha+')';
+    gx.fillRect(c*cell+1.5,r*cell+1.5,cell-2,cell-2);
+  };
+  for(const k of filled)paint(k,0.85);
+  for(const k of previewCells)if(!filled.has(k))paint(k,0.4);
+}
+function cellAt(e){
+  const r=gc.getBoundingClientRect();
+  const c=clamp(Math.floor((e.clientX-r.left)/cell),0,COLS-1);
+  const rr=clamp(Math.floor((e.clientY-r.top)/cell),0,ROWS-1);
+  return [c,rr];
+}
+function bres(a,b){
+  let [c0,r0]=a; const [c1,r1]=b;
+  const cells=[];
+  const dx=Math.abs(c1-c0), dy=Math.abs(r1-r0);
+  const sx=c0<c1?1:-1, sy=r0<r1?1:-1;
+  let err=dx-dy;
+  for(;;){
+    cells.push([c0,r0]);
+    if(c0===c1&&r0===r1)break;
+    const e2=2*err;
+    if(e2>-dy){err-=dy;c0+=sx;}
+    if(e2<dx){err+=dx;r0+=sy;}
+  }
+  return cells;
+}
+gc.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  gc.setPointerCapture(e.pointerId);
+  anchor=cellAt(e);
+  previewCells.clear(); previewCells.add(anchor.join(','));
+  renderGrid();
+});
+gc.addEventListener('pointermove',e=>{
+  if(!anchor)return;
+  previewCells.clear();
+  for(const c of bres(anchor,cellAt(e)))previewCells.add(c.join(','));
+  renderGrid();
+});
+gc.addEventListener('pointerup',e=>{
+  if(!anchor)return;
+  for(const k of previewCells)filled.add(k);
+  previewCells.clear(); anchor=null;
+  renderGrid();
+});
+gc.addEventListener('pointercancel',()=>{previewCells.clear();anchor=null;renderGrid();});
+
+function isSpear(){
+  if(filled.size<4)return false;
+  const cells=[...filled].map(k=>k.split(',').map(Number));
+  let a=cells[0], b=cells[0], best=-1;
+  for(let i=0;i<cells.length;i++)for(let j=i+1;j<cells.length;j++){
+    const d=(cells[i][0]-cells[j][0])**2+(cells[i][1]-cells[j][1])**2;
+    if(d>best){best=d;a=cells[i];b=cells[j];}
+  }
+  const line=bres(a,b);
+  if(line.length<4||line.length!==cells.length)return false;
+  const set=new Set(line.map(c=>c.join(',')));
+  return cells.every(c=>set.has(c.join(',')));
+}
+$('clearbtn').addEventListener('click',()=>{filled.clear();previewCells.clear();renderGrid();});
+$('okbtn').addEventListener('click',()=>{
+  if(!running||overShown)return;
+  if(filled.size===0){setVerdict('Сначала нарисуй что-нибудь.');return;}
+  const ok=isSpear();
+  filled.clear(); previewCells.clear(); renderGrid();
+  if(ok){
+    setVerdict('🎉 Племя поняло: это копьё!');
+    if(!tree){
+      tree={x:rand(W*0.25,W*0.75),y:rand(gy0()+6,gy1()),grow:0,ready:false,taken:0,angryEyes:false,doom:false,doomT:0};
+      setEvent('🌱 Из земли выросло дерево!');
+      for(const q of aliveOnScreen())if(Math.random()<0.6)say(q,pick(['О-о-о!','Дерево!','Чудо!']),2.4);
+    }
+    pending++;
+  }else{
+    setVerdict('🤔 Племя не поняло рисунок…');
+    const a=aliveOnScreen();
+    for(const q of a.slice(0,2))say(q,pick(['Что это?..','Не понимаю…','Хм…']),2.4);
+  }
+});
+
+/* ================= оверлей ================= */
+function showOverlay(title,html,btn){
+  $('ovtitle').innerHTML=title;
+  $('ovtext').innerHTML=html;
+  $('ovbtn').textContent=btn;
+  $('overlay').classList.remove('hidden');
+}
+$('ovbtn').addEventListener('click',()=>{
+  $('overlay').classList.add('hidden');
+  reset();
+  running=true;
+  setEvent('Люди бродят и не знают, что делать…');
+});
+
+/* ================= цикл ================= */
+let last=performance.now();
+function loop(ts){
+  const dt=Math.min(0.05,(ts-last)/1000); last=ts;
+  update(dt);
+  draw(ts/1000);
+  requestAnimationFrame(loop);
+}
+window.addEventListener('resize',()=>{resizeWorld();resizeGrid();});
+resizeWorld();
+resizeGrid();
+reset();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
