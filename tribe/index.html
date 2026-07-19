@@ -34,7 +34,7 @@
   .hud .stat{font-size:14px;color:var(--text-secondary);}
   .hud .stat b{color:var(--text);font-size:16px;font-weight:600;}
   #stage{position:relative;height:min(340px,48vh);border:0.5px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface-1);}
-  #world{display:block;width:100%;height:100%;}
+  #world{display:block;width:100%;height:100%;touch-action:none;}
   #overlay{
     position:absolute;inset:0;z-index:5;
     background:rgba(14,17,22,0.84);backdrop-filter:blur(3px);
@@ -90,6 +90,7 @@
     <div id="ovtitle">🗿 Первобытные</div>
     <div id="ovtext">Твоё племя ничего не умеет. Люди бродят, голодают и бормочут «что же делать».<br><br>
     Рисуй на поле внизу — отрезками, по клеткам. Если племя поймёт рисунок, вещь появится в их мире.<br>
+    На некоторые штуки в мире можно нажимать, а людей — перетаскивать.<br>
     Прислушивайся к бормотанию — там подсказки.</div>
     <button id="ovbtn">Начать</button>
   </div>
@@ -138,15 +139,20 @@ const gy0=()=>H*0.62, gy1=()=>H-18;
 
 /* ================= состояние ================= */
 const NAMES=['Ух','Ах','Ом','Га'];
-const DAY=45, RATE_H=1.05, RATE_F=0.45;
+const CHILD_NAMES=['Бу','Ня','Мо','Ки','Эй','Ва','Зу','Ло'];
+const DAY=45, RATE_H=1.05, RATE_F=0.45, MAX_STICKS=4;
 let people=null, tree=null, ancient=null;
-let pending=0, days=1, dayT=0, running=false, over=false, overShown=false, overT=0, lastCause='starve';
+let shelters=[], buildSite=null, appleEvent=null;
+let pending=0, pendingShelters=0;
+let days=1, dayT=0, running=false, over=false, overShown=false, overT=0, lastCause='starve';
+let sticksNotified=false;
 
 function makePerson(name){
   return {
     name, x:rand(40,W-40), y:rand(gy0(),gy1()),
     tx:0, ty:0, hasTarget:false, idleT:rand(0.5,2),
     hp:100, hunger:rand(30,45), fun:rand(60,85),
+    gender:null, baby:null, inShelter:null,
     spear:false, state:'wander', t:0, dir:1, phase:rand(0,6),
     speed:rand(16,22), moving:false,
     speech:'', speechT:0, mutterT:rand(1.5,5),
@@ -154,14 +160,23 @@ function makePerson(name){
     alive:true, gone:false, deadT:0, removed:false
   };
 }
+function pickChildName(){
+  const used=new Set(people.map(p=>p.name));
+  const free=CHILD_NAMES.filter(n=>!used.has(n));
+  return free.length?pick(free):'Ня-'+irnd(2,99);
+}
 function reset(){
   people=NAMES.map(makePerson);
-  tree=null; ancient=null; pending=0;
+  tree=null; ancient=null;
+  shelters=[]; buildSite=null; appleEvent=null;
+  pending=0; pendingShelters=0; sticksNotified=false;
   days=1; dayT=0; over=false; overShown=false; overT=0; lastCause='starve';
+  dragP=null;
   filled.clear(); previewCells.clear(); renderGrid();
   setVerdict('');
-  $('pop').textContent='4'; $('day').textContent='1';
+  updPop(); $('day').textContent='1';
 }
+function updPop(){$('pop').textContent=String(people?people.filter(p=>p.alive).length:0);}
 
 /* ================= сообщения ================= */
 let evTimer=null, vdTimer=null;
@@ -178,12 +193,19 @@ function say(p,txt,dur){p.speech=txt;p.speechT=dur||2.4;}
 function phrase(p){
   const arr=[];
   const hasTech=tree||people.some(q=>q.alive&&q.spear);
+  const spearers=people.filter(q=>q.alive&&q.spear).length;
   if(p.hunger>55){
     arr.push('Есть хочется…','В животе урчит…');
     if(!hasTech)arr.push('Вот бы длинную острую палку…','Чем бы добыть мясо?..','Палка… нужна острая палка…');
   }
+  if(tree&&spearers>=2&&shelters.length===0&&!buildSite)
+    arr.push('Холодно спать на земле…','Вот бы крышу над головой…','Две палки можно соединить…');
+  if(shelters.length&&people.some(q=>q.alive&&q.gender==='f')&&people.some(q=>q.alive&&q.gender==='m'))
+    arr.push('В укрытии так уютно…','Продолжить бы род…');
   if(p.fun<25)arr.push('Скучно…','Тоска…');
   if(p.spear)arr.push('Моё копьё!','Ух, скоро охота!');
+  if(p.gender==='m')arr.push('Хр-р… я мужик.');
+  if(p.gender==='f')arr.push('Хи-хи…');
   arr.push('Что же делать?..','Что же делать…','Ух…','Угу…');
   return pick(arr);
 }
@@ -198,18 +220,27 @@ function moveTo(p,tx,ty,speed,dt){
   p.moving=true; p.phase+=dt*9;
   return false;
 }
-function aliveOnScreen(){return people.filter(p=>p.alive&&!p.gone);}
+function aliveOnScreen(){return people.filter(p=>p.alive&&!p.gone&&!p.inShelter);}
 function aliveAll(){return people.filter(p=>p.alive);}
 function avgHunger(){
   const a=aliveAll(); if(!a.length)return 0;
   return a.reduce((s,p)=>s+p.hunger,0)/a.length;
 }
 function kill(p,cause){
-  p.alive=false; p.state='dead'; p.deadT=0; p.speech=''; p.meat=false;
+  p.alive=false; p.state='dead'; p.deadT=0; p.speech=''; p.meat=false; p.baby=null;
+  if(p.inShelter){
+    const s=p.inShelter;
+    if(s.occ.m===p)s.occ.m=null;
+    if(s.occ.f===p)s.occ.f=null;
+    p.inShelter=null;
+  }
   if(p.gone)p.removed=true;
+  if(dragP===p)dragP=null;
   lastCause=cause;
-  $('pop').textContent=String(aliveAll().length);
+  updPop();
 }
+function treeBaseY(){return tree?clamp(tree.y,gy0(),gy1()):0;}
+function applePos(){return {x:tree.x+14,y:treeBaseY()-58};}
 
 /* ================= симуляция ================= */
 function update(dt){
@@ -219,16 +250,37 @@ function update(dt){
 
   /* назначение: кто идёт к дереву за палкой */
   if(tree&&tree.ready&&pending>0&&!ancient){
-    const cand=aliveOnScreen().filter(p=>!p.spear&&p.state==='wander');
-    if(cand.length){
-      cand.sort((a,b)=>Math.abs(a.x-tree.x)-Math.abs(b.x-tree.x));
-      cand[0].state='toTree'; say(cand[0],'Пойду отломаю ветку!');
-      pending--;
+    if(tree.taken<MAX_STICKS){
+      const cand=aliveOnScreen().filter(p=>!p.spear&&p.state==='wander');
+      if(cand.length){
+        cand.sort((a,b)=>Math.abs(a.x-tree.x)-Math.abs(b.x-tree.x));
+        cand[0].state='toTree'; say(cand[0],'Пойду отломаю ветку!');
+        pending--; sticksNotified=false;
+      }
+    }else if(!sticksNotified){
+      sticksNotified=true;
+      setEvent('🌳 Веток на дереве нет — отрастут через пару дней…');
+    }
+  }
+
+  /* назначение: стройка укрытия */
+  if(pendingShelters>0&&!buildSite&&!ancient){
+    const cand=aliveOnScreen().filter(p=>p.spear&&p.state==='wander'&&!p.baby);
+    if(cand.length>=2){
+      const a=cand[0], b=cand[1];
+      const bx=clamp((a.x+b.x)/2+rand(-40,40),40,W-40);
+      const by=rand(gy0()+4,gy1());
+      buildSite={x:bx,y:by,t:3,a,b};
+      a.state='toBuild'; b.state='toBuild';
+      say(a,'Давай соединим наши палочки!',2.8);
+      say(b,'Давай!',2.8);
+      pendingShelters--;
     }
   }
 
   for(const p of people){
     if(!p.alive){p.deadT+=dt; if(p.deadT>7)p.removed=true; continue;}
+    if(p.inShelter)continue; /* внутри укрытия время замирает */
 
     p.hunger=clamp(p.hunger+RATE_H*dt,0,100);
     p.fun=clamp(p.fun-RATE_F*dt,0,100);
@@ -236,15 +288,30 @@ function update(dt){
     else if(p.hunger<30)p.hp=Math.min(100,p.hp+0.6*dt);
     if(p.hp<=0){kill(p,'starve');setEvent('💀 '+p.name+' умер от голода…');continue;}
 
+    /* молоденец растёт */
+    if(p.baby){
+      p.baby.t-=dt;
+      if(p.baby.t<=0){
+        p.baby=null;
+        const c=makePerson(pickChildName());
+        c.x=clamp(p.x+rand(-24,24),20,W-20); c.y=clamp(p.y+rand(-8,8),gy0(),gy1());
+        c.gender=Math.random()<0.5?'f':'m';
+        c.hunger=30; c.fun=85;
+        people.push(c); updPop();
+        setEvent('🧒 Молоденец вырос — теперь это '+c.name+' ('+(c.gender==='f'?'девочка':'мужик')+')!');
+        say(c,'Я сам!',2.6);
+      }
+    }
+
     p.huntCd-=dt;
     if(p.speechT>0)p.speechT-=dt;
     p.mutterT-=dt;
-    if(p.mutterT<=0&&p.speechT<=0&&!p.gone&&p.state!=='fleeing'){
+    if(p.mutterT<=0&&p.speechT<=0&&!p.gone&&p.state!=='fleeing'&&p.state!=='dragged'){
       say(p,phrase(p)); p.mutterT=rand(3.5,8);
     }
 
-    if(ancient&&!p.gone&&p.state!=='fleeing'&&p.state!=='gone'){
-      p.state='fleeing'; say(p,'А-А-А!',3);
+    if(ancient&&p.state!=='fleeing'&&p.state!=='dragged'&&!p.gone){
+      p.state='fleeing'; p.meat=false; say(p,'А-А-А!',3);
     }
 
     switch(p.state){
@@ -258,7 +325,7 @@ function update(dt){
           p.hasTarget=false; p.idleT=rand(1,4);
         }
         /* решение пойти на охоту */
-        if(p.spear&&p.huntCd<=0&&avgHunger()>35&&!ancient){
+        if(p.spear&&!p.baby&&p.huntCd<=0&&avgHunger()>35&&!ancient){
           p.state='toEdge';
           p.edgeX=p.x<W/2?-34:W+34;
           say(p,'Пойду на охоту!');
@@ -269,10 +336,8 @@ function update(dt){
         if(!tree){p.state='wander';break;}
         if(moveTo(p,tree.x+16,clamp(tree.y,gy0(),gy1()),p.speed*1.2,dt)){
           p.state='sharp'; p.t=3;
-          tree.taken++;
+          tree.taken=Math.min(MAX_STICKS,tree.taken+1);
           say(p,'Хрусь! *отломал ветку*',2.2);
-          const unarmed=aliveAll().filter(q=>!q.spear).length;
-          if(unarmed===1){ /* этот последний как раз точит */ }
         }
         break;
       }
@@ -286,6 +351,62 @@ function update(dt){
           const unarmed=aliveAll().filter(q=>!q.spear).length;
           if(unarmed===1&&tree){tree.angryEyes=true;setEvent('🌳 Дерево как-то недобро скрипит…');}
           if(unarmed===0&&tree&&!tree.doom){tree.doom=true;tree.doomT=1.6;}
+        }
+        break;
+      }
+      case 'toBuild':{
+        if(!buildSite){p.state='wander';break;}
+        const off=p===buildSite.a?-14:14;
+        if(moveTo(p,buildSite.x+off,buildSite.y,p.speed*1.2,dt)){
+          p.state='build'; p.moving=false;
+        }
+        break;
+      }
+      case 'build':{
+        p.moving=false;
+        if(!buildSite){p.state='wander';break;}
+        if(p.speechT<=0)say(p,pick(['тук-тук…','хрясь…']),1.3);
+        break;
+      }
+      case 'toApple':{
+        if(!tree||!tree.apple){p.state='wander';appleEvent=null;break;}
+        if(moveTo(p,tree.x-12,clamp(tree.y,gy0(),gy1()),p.speed*1.3,dt)){
+          p.state='eatApple'; p.t=2; say(p,'Ням… 🍎',2);
+        }
+        break;
+      }
+      case 'eatApple':{
+        p.moving=false; p.t-=dt;
+        if(p.t<=0){
+          if(tree)tree.apple=false;
+          p.gender='f';
+          say(p,'Ой… что со мной?..',3);
+          setEvent('🍎 '+p.name+' съела яблоко и стала девочкой!');
+          for(const q of aliveOnScreen()){
+            if(q===p||q.state==='dragged'||q.state==='gone')continue;
+            if(['wander','toTree','toApple'].includes(q.state)){
+              q.state='toWonder';
+              q.tx=clamp(p.x+rand(-34,34),20,W-20);
+              q.ty=clamp(p.y+rand(-14,14),gy0(),gy1());
+            }
+          }
+          p.state='wander'; p.hasTarget=false;
+          appleEvent=null;
+        }
+        break;
+      }
+      case 'toWonder':{
+        if(moveTo(p,p.tx,p.ty,p.speed*1.5,dt)){
+          p.state='wonder'; p.t=1.6; say(p,pick(['?!','Ого!','О-о-о!']),1.6);
+        }
+        break;
+      }
+      case 'wonder':{
+        p.moving=false; p.t-=dt;
+        if(p.t<=0){
+          p.gender='m';
+          say(p,'Я мужик!',2.6);
+          p.state='wander'; p.hasTarget=false;
         }
         break;
       }
@@ -314,6 +435,7 @@ function update(dt){
           const dmg=Math.random()<0.25?irnd(20,40):irnd(3,12);
           p.hp-=dmg;
           for(const q of aliveAll()){
+            if(q.inShelter)continue;
             q.hunger=Math.max(0,q.hunger-65);
             q.fun=Math.min(100,q.fun+25);
             if(q!==p&&!q.gone)say(q,pick(['Ням-ням!','Еда!','Мясо!']),2.2);
@@ -324,6 +446,10 @@ function update(dt){
           if(p.hp<=0){kill(p,'hunt');setEvent('💀 '+p.name+' умер от ран после охоты…');}
           else{p.state='wander';p.hasTarget=false;p.huntCd=rand(18,26);}
         }
+        break;
+      }
+      case 'dragged':{
+        p.moving=false;
         break;
       }
       case 'fleeing':{
@@ -338,21 +464,92 @@ function update(dt){
     }
   }
 
+  /* стройка */
+  if(buildSite){
+    const a=buildSite.a, b=buildSite.b;
+    const aOk=a.alive&&(a.state==='toBuild'||a.state==='build');
+    const bOk=b.alive&&(b.state==='toBuild'||b.state==='build');
+    if(!aOk||!bOk){
+      if(a.alive&&(a.state==='toBuild'||a.state==='build')){a.state='wander';a.hasTarget=false;}
+      if(b.alive&&(b.state==='toBuild'||b.state==='build')){b.state='wander';b.hasTarget=false;}
+      if(!ancient)pendingShelters++;
+      buildSite=null;
+    }else if(a.state==='build'&&b.state==='build'){
+      buildSite.t-=dt;
+      if(buildSite.t<=0){
+        a.spear=false; b.spear=false;
+        a.state='wander'; a.hasTarget=false;
+        b.state='wander'; b.hasTarget=false;
+        say(a,'Готово!',2.4);
+        shelters.push({x:buildSite.x,y:buildSite.y,occ:{m:null,f:null},phase:'idle',t:0});
+        setEvent('⛺ '+a.name+' и '+b.name+' построили укрытие из палок!');
+        buildSite=null;
+      }
+    }
+  }
+
+  /* укрытия: тряска и беременность */
+  for(const s of shelters){
+    if(s.phase==='shaking'){
+      s.t-=dt;
+      if(s.t<=0){
+        const m=s.occ.m;
+        if(m&&m.alive){
+          m.inShelter=null; m.x=clamp(s.x+26,10,W-10); m.y=clamp(s.y,gy0(),gy1());
+          m.fun=100; m.state='wander'; m.hasTarget=false;
+          say(m,'Хорошо-то как!',3);
+          setEvent('😊 '+m.name+' вышел из укрытия в отличном настроении!');
+        }
+        s.occ.m=null;
+        s.phase='gest'; s.t=3*DAY;
+      }
+    }else if(s.phase==='gest'){
+      s.t-=dt;
+      if(s.t<=0){
+        const f=s.occ.f;
+        if(f&&f.alive){
+          f.inShelter=null; f.x=clamp(s.x-26,10,W-10); f.y=clamp(s.y,gy0(),gy1());
+          f.baby={t:2*DAY}; f.state='wander'; f.hasTarget=false;
+          say(f,'Смотрите, молоденец!',3);
+          setEvent('👶 '+f.name+' вышла из укрытия с молоденцем!');
+        }
+        s.occ.f=null;
+        s.phase='idle';
+      }
+    }
+  }
+
   /* дерево */
   if(tree){
     if(!tree.ready){
       tree.grow=Math.min(1,tree.grow+dt/2.2);
-      if(tree.grow>=1)tree.ready=true;
+      if(tree.grow>=1){
+        tree.ready=true;
+        tree.apple=true;
+        setEvent('🍎 На дереве созрело яблоко!');
+      }
+    }else{
+      tree.cycleT+=dt;
+      if(tree.cycleT>=3*DAY){
+        tree.cycleT-=3*DAY;
+        let msg=[];
+        if(tree.taken>0){tree.taken=0;sticksNotified=false;msg.push('отросли новые ветки');}
+        if(!tree.apple){tree.apple=true;msg.push('созрело яблоко');}
+        if(msg.length)setEvent('🌿 На дереве '+msg.join(' и ')+'!');
+      }
     }
     if(tree.doom){
       tree.doomT-=dt;
       if(tree.doomT<=0){
         ancient={x:tree.x,y:clamp(tree.y,gy0(),gy1()),phase:'rise',t:1.6,step:0};
-        tree=null;
+        tree=null; appleEvent=null;
         setEvent('🌳 Дерево ВОССТАЛО! Это Древень!');
       }
     }
   }
+
+  /* если едок яблока погиб по пути */
+  if(appleEvent&&(!appleEvent.eater.alive))appleEvent=null;
 
   /* древень */
   if(ancient){
@@ -368,6 +565,23 @@ function update(dt){
         ancient.x+=dx/d*74*dt; ancient.y=clamp(ancient.y+dy/d*40*dt,gy0(),gy1());
         ancient.step+=dt*6;
         if(d<26){kill(tgt,'ancient');setEvent('💀 Древень схватил '+tgt.name+'!');}
+      }else{
+        const s=shelters.find(sh=>sh.occ.m||sh.occ.f);
+        if(s){
+          const dx=s.x-ancient.x, dy=clamp(s.y,gy0(),gy1())-ancient.y, d=Math.hypot(dx,dy)||1;
+          ancient.x+=dx/d*74*dt; ancient.y=clamp(ancient.y+dy/d*40*dt,gy0(),gy1());
+          ancient.step+=dt*6;
+          if(d<32){
+            for(const occ of [s.occ.m,s.occ.f]){
+              if(occ&&occ.alive){
+                occ.inShelter=null; occ.x=clamp(s.x+rand(-20,20),10,W-10);
+                occ.y=clamp(s.y,gy0(),gy1()); occ.state='fleeing'; say(occ,'А-А-А!',3);
+              }
+            }
+            shelters.splice(shelters.indexOf(s),1);
+            setEvent('🌳 Древень разломал укрытие!');
+          }
+        }
       }
     }
   }
@@ -411,7 +625,7 @@ function bar(x,y,w,f,col){
   wx.fillStyle=col; wx.fillRect(x,y,w*clamp(f,0,1),3);
 }
 function drawPerson(p,now){
-  if(p.removed||p.gone)return;
+  if(p.removed||p.gone||p.inShelter)return;
   wx.save();
   wx.translate(p.x,p.y);
   if(!p.alive){
@@ -431,7 +645,7 @@ function drawPerson(p,now){
   roundRect(wx,-4,-23,8,13,3); wx.fill();
   /* руки */
   wx.beginPath();
-  if(p.state==='sharp'){
+  if(p.state==='sharp'||p.state==='build'){
     wx.moveTo(0,-19);wx.lineTo(7*p.dir,-14+Math.sin(now*14)*2);
     wx.moveTo(0,-19);wx.lineTo(-5*p.dir,-13);
   }else{
@@ -440,9 +654,25 @@ function drawPerson(p,now){
   }
   wx.stroke();
   /* голова */
+  wx.fillStyle=skin;
   wx.beginPath();wx.arc(0,-28,5.2,0,6.29);wx.fill();
   wx.fillStyle=hair;
   wx.beginPath();wx.arc(0,-29.5,5.2,Math.PI,2*Math.PI);wx.fill();
+  /* девочка: длинные волосы и цветочек */
+  if(p.gender==='f'){
+    wx.strokeStyle=hair; wx.lineWidth=2.2;
+    wx.beginPath();
+    wx.moveTo(-4.6,-29);wx.lineTo(-5.6,-17);
+    wx.moveTo(4.6,-29);wx.lineTo(5.6,-17);
+    wx.stroke();
+    wx.fillStyle='#e77fb3';
+    wx.fillRect(-p.dir*4-1.2,-33.6,2.6,2.6);
+  }
+  /* мужик: борода */
+  if(p.gender==='m'){
+    wx.fillStyle=hair;
+    wx.beginPath();wx.arc(0,-25.2,3.8,0,Math.PI);wx.fill();
+  }
   wx.fillStyle='#16202b';
   wx.fillRect(p.dir*2,-29,1.6,1.6);
   /* копьё */
@@ -456,6 +686,13 @@ function drawPerson(p,now){
     wx.moveTo(p.dir*11,-34);wx.lineTo(p.dir*13.5,-38.5);wx.lineTo(p.dir*8.5,-38.5);
     wx.closePath();wx.fill();
   }
+  /* молоденец на руках */
+  if(p.baby){
+    wx.fillStyle=skin;
+    wx.beginPath();wx.arc(p.dir*-7,-16,3.4,0,6.29);wx.fill();
+    wx.fillStyle=hair;
+    wx.beginPath();wx.arc(p.dir*-7,-17.2,3.4,Math.PI,2*Math.PI);wx.fill();
+  }
   /* мясо */
   if(p.meat){wx.font='13px '+FONT;wx.fillText('🍖',p.dir*-14,-14);}
   wx.restore();
@@ -467,7 +704,7 @@ function drawPerson(p,now){
   }
 }
 function drawTree(now){
-  const g=tree.grow, x=tree.x, y=clamp(tree.y,gy0(),gy1());
+  const g=tree.grow, x=tree.x, y=treeBaseY();
   wx.save();
   if(tree.doom)wx.translate(Math.sin(now*32)*3,0);
   wx.translate(x,y);
@@ -477,7 +714,7 @@ function drawTree(now){
   wx.fillRect(-7,-58,14,58);
   /* ветки-палки (сколько осталось) */
   wx.strokeStyle='#8a6b43'; wx.lineWidth=3; wx.lineCap='round';
-  const left=Math.max(0,4-tree.taken);
+  const left=Math.max(0,MAX_STICKS-tree.taken);
   for(let i=0;i<left;i++){
     const s=i%2?1:-1, yy=-22-i*9;
     wx.beginPath();wx.moveTo(s*6,yy);wx.lineTo(s*22,yy-9);wx.stroke();
@@ -489,12 +726,47 @@ function drawTree(now){
   wx.beginPath();wx.arc(17,-60,17,0,6.29);wx.fill();
   wx.fillStyle='#4b8f4b';
   wx.beginPath();wx.arc(-6,-76,12,0,6.29);wx.fill();
+  /* яблоко */
+  if(tree.apple){
+    wx.fillStyle='#d84a3f';
+    wx.beginPath();wx.arc(14,-58,4.6,0,6.29);wx.fill();
+    wx.strokeStyle='#7a5533'; wx.lineWidth=1.4;
+    wx.beginPath();wx.moveTo(14,-62.6);wx.lineTo(15.4,-66);wx.stroke();
+    wx.fillStyle='rgba(255,255,255,0.5)';
+    wx.beginPath();wx.arc(12.6,-59.6,1.3,0,6.29);wx.fill();
+  }
   /* злые глаза */
   if(tree.angryEyes||tree.doom){
     wx.fillStyle=tree.doom?'#ff5544':'#d8b13a';
     wx.beginPath();wx.arc(-4,-44,2.4,0,6.29);wx.fill();
     wx.beginPath();wx.arc(4,-44,2.4,0,6.29);wx.fill();
   }
+  wx.restore();
+}
+function drawShelter(s,now){
+  wx.save();
+  const ox=s.phase==='shaking'?Math.sin(now*40)*2.6:0;
+  wx.translate(s.x+ox,clamp(s.y,gy0(),gy1()));
+  wx.fillStyle='#151c14';
+  wx.beginPath();wx.moveTo(-22,0);wx.lineTo(0,-36);wx.lineTo(22,0);wx.closePath();wx.fill();
+  wx.strokeStyle='#8a6b43'; wx.lineWidth=4; wx.lineCap='round';
+  wx.beginPath();wx.moveTo(-22,0);wx.lineTo(0,-36);wx.lineTo(22,0);wx.stroke();
+  wx.lineWidth=2.4;
+  wx.beginPath();
+  wx.moveTo(-13,-14);wx.lineTo(-3,0);
+  wx.moveTo(13,-14);wx.lineTo(3,0);
+  wx.stroke();
+  wx.font='12px '+FONT;
+  if(s.phase==='shaking')wx.fillText('💕',-7,-42+Math.sin(now*10)*2);
+  if(s.phase==='gest')wx.fillText('👶?',-9,-42);
+  wx.restore();
+}
+function drawBuildSite(now){
+  wx.save();
+  wx.translate(buildSite.x,clamp(buildSite.y,gy0(),gy1()));
+  wx.globalAlpha=0.4;
+  wx.strokeStyle='#8a6b43'; wx.lineWidth=3; wx.lineCap='round';
+  wx.beginPath();wx.moveTo(-22,0);wx.lineTo(0,-36);wx.lineTo(22,0);wx.stroke();
   wx.restore();
 }
 function drawAncient(now){
@@ -504,7 +776,6 @@ function drawAncient(now){
   wx.translate(a.x,a.y);
   if(a.phase==='rise')wx.translate(Math.sin(now*30)*2.5,0);
   const lift=rise*22;
-  /* ноги-корни */
   if(rise>0.4){
     wx.strokeStyle='#6b4a2a'; wx.lineWidth=6; wx.lineCap='round';
     const st=Math.sin(a.step)*6;
@@ -513,35 +784,28 @@ function drawAncient(now){
     wx.moveTo(8,-lift);wx.lineTo(11-st,0);
     wx.stroke();
   }
-  /* ствол-тело */
   wx.fillStyle='#6b4a2a';
   wx.fillRect(-13,-70-lift,26,70);
-  /* руки-ветви */
   wx.strokeStyle='#6b4a2a'; wx.lineWidth=5;
   wx.beginPath();
   wx.moveTo(-12,-52-lift);wx.lineTo(-34,-70-lift+Math.sin(now*8)*4);
   wx.moveTo(12,-52-lift);wx.lineTo(34,-70-lift-Math.sin(now*8)*4);
   wx.stroke();
-  /* крона */
   wx.fillStyle='#2f5d2f';
   wx.beginPath();wx.arc(0,-86-lift,26,0,6.29);wx.fill();
   wx.beginPath();wx.arc(-18,-74-lift,16,0,6.29);wx.fill();
   wx.beginPath();wx.arc(18,-74-lift,16,0,6.29);wx.fill();
-  /* глаза */
   wx.fillStyle='#ff5544';
   wx.beginPath();wx.arc(-6,-58-lift,3.4,0,6.29);wx.fill();
   wx.beginPath();wx.arc(6,-58-lift,3.4,0,6.29);wx.fill();
-  /* пасть */
   wx.fillStyle='#2a1a0e';
   wx.fillRect(-6,-48-lift,12,4);
   wx.restore();
 }
 function draw(now){
-  /* небо */
   const sky=wx.createLinearGradient(0,0,0,H);
   sky.addColorStop(0,'#0d1420'); sky.addColorStop(0.6,'#16222f'); sky.addColorStop(1,'#1a2633');
   wx.fillStyle=sky; wx.fillRect(0,0,W,H);
-  /* звёзды и луна */
   for(const s of stars){
     wx.globalAlpha=0.4+0.4*Math.sin(now*1.5+s.tw);
     wx.fillStyle='#cfe3f5';
@@ -552,16 +816,109 @@ function draw(now){
   wx.beginPath();wx.arc(W-46,34,13,0,6.29);wx.fill();
   wx.fillStyle='#16222f';
   wx.beginPath();wx.arc(W-51,30,11,0,6.29);wx.fill();
-  /* земля */
   wx.fillStyle='#233020'; wx.fillRect(0,H*0.58,W,H);
   wx.fillStyle='#1b2519'; wx.fillRect(0,H-10,W,10);
-  /* дерево / древень */
   if(tree)drawTree(now);
+  if(buildSite)drawBuildSite(now);
+  for(const s of shelters)drawShelter(s,now);
   if(ancient)drawAncient(now);
-  /* люди (сортировка по глубине) */
   const sorted=[...people].sort((a,b)=>a.y-b.y);
   for(const p of sorted)drawPerson(p,now);
 }
+
+/* ================= клики и перетаскивание в мире ================= */
+let dragP=null;
+function worldPos(e){
+  const r=wc.getBoundingClientRect();
+  return {x:e.clientX-r.left, y:e.clientY-r.top};
+}
+wc.addEventListener('pointerdown',e=>{
+  if(!running||overShown)return;
+  e.preventDefault();
+  const pos=worldPos(e);
+  /* человек? */
+  let best=null, bd=26;
+  for(const p of people){
+    if(!p.alive||p.gone||p.removed||p.inShelter)continue;
+    const d=Math.hypot(pos.x-p.x,pos.y-(p.y-16));
+    if(d<bd){bd=d;best=p;}
+  }
+  if(best){
+    dragP=best;
+    dragP.state='dragged'; dragP.speech=''; dragP.speechT=0;
+    wc.setPointerCapture(e.pointerId);
+    return;
+  }
+  /* яблоко? */
+  if(tree&&tree.ready&&tree.apple&&!appleEvent&&!ancient){
+    const ap=applePos();
+    if(Math.hypot(pos.x-ap.x,pos.y-ap.y)<18){
+      const cand=aliveOnScreen().filter(p=>p.state==='wander');
+      if(cand.length){
+        cand.sort((a,b)=>Math.abs(a.x-tree.x)-Math.abs(b.x-tree.x));
+        const eater=cand[0];
+        eater.state='toApple'; say(eater,'Яблоко!',2);
+        appleEvent={eater};
+      }
+      return;
+    }
+  }
+  /* укрытие? — выпустить сидящих */
+  for(const s of shelters){
+    if(Math.hypot(pos.x-s.x,pos.y-(clamp(s.y,gy0(),gy1())-18))<28&&s.phase!=='gest'){
+      for(const k of ['m','f']){
+        const occ=s.occ[k];
+        if(occ&&occ.alive){
+          occ.inShelter=null;
+          occ.x=clamp(s.x+(k==='m'?26:-26),10,W-10); occ.y=clamp(s.y,gy0(),gy1());
+          occ.state='wander'; occ.hasTarget=false;
+          say(occ,'Ну во-от…',2);
+          s.occ[k]=null;
+        }
+      }
+      s.phase='idle';
+      return;
+    }
+  }
+});
+wc.addEventListener('pointermove',e=>{
+  if(!dragP)return;
+  const pos=worldPos(e);
+  dragP.x=clamp(pos.x,8,W-8);
+  dragP.y=clamp(pos.y+16,20,H-4);
+});
+wc.addEventListener('pointerup',e=>{
+  if(!dragP)return;
+  const p=dragP; dragP=null;
+  /* бросили на укрытие? */
+  let target=null, bd=36;
+  for(const s of shelters){
+    const d=Math.hypot(p.x-s.x,p.y-clamp(s.y,gy0(),gy1()));
+    if(d<bd){bd=d;target=s;}
+  }
+  if(target&&p.gender&&target.phase==='idle'&&!target.occ[p.gender]){
+    target.occ[p.gender]=p;
+    p.inShelter=target; p.state='idle-in'; p.moving=false;
+    if(target.occ.m&&target.occ.f){
+      target.phase='shaking'; target.t=3;
+      setEvent('⛺ Укрытие затряслось…');
+    }
+    return;
+  }
+  if(target&&!p.gender)say(p,'Зачем мне туда?',2.2);
+  else if(target)say(p,'Не пойду!',2.2);
+  p.y=clamp(p.y,gy0(),gy1());
+  p.state=ancient?'fleeing':'wander';
+  p.hasTarget=false;
+});
+wc.addEventListener('pointercancel',()=>{
+  if(dragP){
+    dragP.y=clamp(dragP.y,gy0(),gy1());
+    dragP.state=ancient?'fleeing':'wander';
+    dragP.hasTarget=false;
+    dragP=null;
+  }
+});
 
 /* ================= поле рисования ================= */
 const gc=$('grid'), gx=gc.getContext('2d');
@@ -635,6 +992,12 @@ gc.addEventListener('pointerup',e=>{
 });
 gc.addEventListener('pointercancel',()=>{previewCells.clear();anchor=null;renderGrid();});
 
+const ckey=c=>c[0]+','+c[1];
+function matchesSet(cellsKeys){
+  if(cellsKeys.size!==filled.size)return false;
+  for(const k of filled)if(!cellsKeys.has(k))return false;
+  return true;
+}
 function isSpear(){
   if(filled.size<4)return false;
   const cells=[...filled].map(k=>k.split(',').map(Number));
@@ -643,25 +1006,56 @@ function isSpear(){
     const d=(cells[i][0]-cells[j][0])**2+(cells[i][1]-cells[j][1])**2;
     if(d>best){best=d;a=cells[i];b=cells[j];}
   }
-  const line=bres(a,b);
-  if(line.length<4||line.length!==cells.length)return false;
-  const set=new Set(line.map(c=>c.join(',')));
-  return cells.every(c=>set.has(c.join(',')));
+  for(const line of [bres(a,b),bres(b,a)]){
+    if(line.length<4)continue;
+    if(matchesSet(new Set(line.map(ckey))))return true;
+  }
+  return false;
+}
+/* перевёрнутая галка ∧: вершина сверху, два луча вниз */
+function isShelterShape(){
+  if(filled.size<5)return false;
+  const cells=[...filled].map(k=>k.split(',').map(Number));
+  const minRow=Math.min(...cells.map(c=>c[1]));
+  const apexes=cells.filter(c=>c[1]===minRow);
+  let e1=cells[0], e2=cells[0];
+  for(const c of cells){
+    if(c[0]<e1[0]||(c[0]===e1[0]&&c[1]>e1[1]))e1=c;
+    if(c[0]>e2[0]||(c[0]===e2[0]&&c[1]>e2[1]))e2=c;
+  }
+  for(const apex of apexes){
+    if(!(e1[0]<apex[0]&&apex[0]<e2[0]))continue;
+    if(!(e1[1]>apex[1]&&e2[1]>apex[1]))continue;
+    const armsA=[bres(apex,e1),bres(e1,apex).reverse()];
+    const armsB=[bres(apex,e2),bres(e2,apex).reverse()];
+    if(armsA[0].length<3||armsB[0].length<3)continue;
+    for(const la of armsA)for(const lb of armsB){
+      const u=new Set([...la.map(ckey),...lb.map(ckey)]);
+      if(matchesSet(u))return true;
+    }
+  }
+  return false;
 }
 $('clearbtn').addEventListener('click',()=>{filled.clear();previewCells.clear();renderGrid();});
 $('okbtn').addEventListener('click',()=>{
   if(!running||overShown)return;
   if(filled.size===0){setVerdict('Сначала нарисуй что-нибудь.');return;}
-  const ok=isSpear();
+  const spear=isSpear();
+  const shelter=!spear&&isShelterShape();
   filled.clear(); previewCells.clear(); renderGrid();
-  if(ok){
+  if(spear){
     setVerdict('🎉 Племя поняло: это копьё!');
     if(!tree){
-      tree={x:rand(W*0.25,W*0.75),y:rand(gy0()+6,gy1()),grow:0,ready:false,taken:0,angryEyes:false,doom:false,doomT:0};
+      tree={x:rand(W*0.25,W*0.75),y:rand(gy0()+6,gy1()),grow:0,ready:false,taken:0,apple:false,cycleT:0,angryEyes:false,doom:false,doomT:0};
       setEvent('🌱 Из земли выросло дерево!');
       for(const q of aliveOnScreen())if(Math.random()<0.6)say(q,pick(['О-о-о!','Дерево!','Чудо!']),2.4);
     }
     pending++;
+  }else if(shelter){
+    setVerdict('🎉 Племя поняло: это укрытие!');
+    pendingShelters++;
+    const spearers=people.filter(q=>q.alive&&q.spear).length;
+    if(spearers<2)setEvent('🪵 Но чтобы построить укрытие, нужны хотя бы двое с палками…');
   }else{
     setVerdict('🤔 Племя не поняло рисунок…');
     const a=aliveOnScreen();
