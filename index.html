@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<title>Кондиционер против жары 2.0</title>
+<style>
+  :root{
+    --bg:#0e1116;
+    --surface-1:#1a2029;
+    --surface-2:#232b35;
+    --border:#2e3742;
+    --text:#e6edf3;
+    --text-secondary:#8b98a5;
+    --accent:#378ADD;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,"Apple Color Emoji","Segoe UI Emoji",sans-serif;
+    -webkit-font-smoothing:antialiased;
+    -webkit-text-size-adjust:100%;
+    min-height:100vh;
+    padding:16px;
+    padding:calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:640px;margin:0 auto;}
+  .emo{font-style:normal;line-height:1;display:inline-block;}
+  button#startbtn{
+    font-family:inherit;font-size:15px;font-weight:600;
+    color:#fff;background:var(--accent);
+    border:0;border-radius:10px;padding:11px 22px;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  button#startbtn:active{transform:translateY(1px);}
+  #fsbtn{
+    position:absolute;top:8px;right:8px;z-index:5;
+    width:36px;height:36px;border-radius:8px;
+    border:0.5px solid var(--border);
+    background:rgba(26,32,41,0.7);color:var(--text);
+    font-size:18px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    -webkit-tap-highlight-color:transparent;backdrop-filter:blur(4px);
+  }
+  #fsbtn:active{transform:translateY(1px);}
+  #stage:fullscreen,#stage:-webkit-full-screen{
+    width:100vw!important;height:100dvh!important;border-radius:0!important;border:0!important;background:var(--bg)!important;
+  }
+  #stage.faux-fs{
+    position:fixed!important;inset:0!important;z-index:9999;
+    width:100vw!important;height:100dvh!important;
+    border:0!important;border-radius:0!important;background:var(--bg)!important;
+  }
+  #stage:fullscreen #cv,#stage:-webkit-full-screen #cv,#stage.faux-fs #cv{height:100%!important;}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h2 class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);">Аркадная игра: кликайте по волнам жары, ловите вентилятор-бонус и бейте босса-Солнце, не дайте комнате перегреться.</h2>
+<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px;flex-wrap:wrap;">
+  <div style="display:flex;gap:16px;align-items:baseline;">
+    <span style="font-size:14px;color:var(--text-secondary);">Счёт</span>
+    <span id="score" style="font-size:24px;font-weight:600;">0</span>
+    <span style="font-size:14px;color:var(--text-secondary);">Рекорд</span>
+    <span id="best" style="font-size:24px;font-weight:600;">0</span>
+    <span id="fanind" style="font-size:14px;color:#6FB2F0;font-weight:600;display:none;"><span class="emo" aria-hidden="true">💨</span> вентилятор!</span>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center;min-width:180px;">
+    <span class="emo" aria-hidden="true" style="font-size:18px;">🌡️</span>
+    <div style="flex:1;height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;border:0.5px solid var(--border);">
+      <div id="heatbar" style="height:100%;width:16%;background:#EF9F27;border-radius:4px;transition:width .2s;"></div>
+    </div>
+    <span id="temp" style="font-size:14px;font-weight:600;min-width:42px;text-align:right;">24°C</span>
+  </div>
+</div>
+<div id="stage" style="position:relative;border:0.5px solid var(--border);border-radius:12px;overflow:hidden;background:var(--surface-1);">
+  <button id="fsbtn" title="Полный экран" aria-label="Полноэкранный режим">⛶</button>
+  <canvas id="cv" style="display:block;width:100%;height:420px;touch-action:manipulation;cursor:crosshair;"></canvas>
+  <div id="overlay" style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;background:var(--surface-1);padding:16px;text-align:center;">
+    <span class="emo" aria-hidden="true" style="font-size:48px;">❄️</span>
+    <p id="ovtitle" style="font-size:18px;font-weight:600;margin:0;">Кондиционер против жары 2.0</p>
+    <p id="ovtext" style="font-size:14px;color:var(--text-secondary);margin:0;max-width:400px;">Кликай по волнам жары. Лови синий вентилятор — он сдувает жару вниз. Появится шланг с дырой 🕳️ — перетащи конец шланга в дыру, и жару начнёт засасывать. А босс-Солнце ☀️ — долби по нему, пока не растает. Пёс по-прежнему хороший мальчик.</p>
+    <button id="startbtn">Включить кондиционер</button>
+  </div>
+</div>
+<p id="msg" style="font-size:14px;color:var(--text-secondary);margin:10px 0 0;min-height:20px;">Вентилятор появляется сам — главное успеть по нему кликнуть.</p>
+</div>
+<script>
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d');
+const overlay=document.getElementById('overlay'),startbtn=document.getElementById('startbtn');
+const scoreEl=document.getElementById('score'),bestEl=document.getElementById('best');
+const heatbar=document.getElementById('heatbar'),tempEl=document.getElementById('temp'),msgEl=document.getElementById('msg');
+const ovtitle=document.getElementById('ovtitle'),ovtext=document.getElementById('ovtext'),fanind=document.getElementById('fanind');
+const START_TEMP=24,LOSE_TEMP=45;
+let W,H,dpr;
+let ready=false;
+function resize(){dpr=window.devicePixelRatio||1;W=cv.clientWidth;H=cv.clientHeight||420;cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);if(ready)draw();}
+resize();window.addEventListener('resize',resize);
+let blobs=[],parts=[],dog=null,fan=null,boss=null,nextBoss=45,hose=null,hoseT=0,dragHose=false,fanActive=0,fanAngle=0,score=0,best=0,temp=24,running=false,lastT=0,spawnT=0,dogT=0,fanT=0,combo=0,comboT=0,shake=0,frame;
+const praise=['Морозно!','Ледяная точность','Жара повержена','Холодок пошёл','Минус одна волна','Арктика одобряет','Так её!','Заморожено насмерть'];
+const dogMsgs=['Пёс принёс прохладу! +50','Хороший мальчик! +50','Собака виляет хвостом. +50'];
+const failMsgs=['Комната превратилась в сауну','Ты расплавился. Бывает.','Жара победила... в этот раз'];
+function rnd(a,b){return a+Math.random()*(b-a);}
+function spawnBlob(){const r=rnd(22,42);blobs.push({x:rnd(r+10,W-r-10),y:H+r,r:r,vy:-rnd(22,36)-score*0.16,wob:rnd(0,6.28),ws:rnd(1.5,3),frozen:0});}
+function spawnDog(){const dir=Math.random()<0.5?1:-1;dog={x:dir>0?-50:W+50,y:H-46,vx:dir*rnd(120,170),t:0,hit:false};}
+function spawnFan(){fan={x:rnd(50,W-50),y:rnd(60,H-120),life:7,t:0};setMsg('Вентилятор в комнате! Кликни по нему.');}
+function spawnBoss(){boss={x:W/2,y:80,r:46,hp:14,maxhp:14,t:0,shootT:1.8,hurt:0};shake=8;setMsg('☀️ БОСС: Раскалённое Солнце! Долби по нему кликами!');}
+function bossShoot(){const r=rnd(20,30);blobs.push({x:rnd(r+10,W-r-10),y:H+r,r:r,vy:-rnd(34,50),wob:rnd(0,6.28),ws:rnd(1.5,3),frozen:0});}
+function spawnHose(){const baseX=rnd(50,W-50);hose={baseX:baseX,baseY:H-12,endX:baseX+rnd(-24,24),endY:H-44,holeX:rnd(70,W-70),holeY:rnd(80,H-150),hr:26,range:95,connected:false,t:0,life:14,suckLife:0};setMsg('🕳️ Появились шланг и дыра! Перетащи конец шланга в дыру.');}
+function burst(x,y,col,n){for(let i=0;i<n;i++){const a=rnd(0,6.28),s=rnd(40,160);parts.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:rnd(.3,.7),max:.7,col});}}
+function setMsg(t){msgEl.textContent=t;}
+function updateHud(){scoreEl.textContent=score;bestEl.textContent=best;const c=Math.round(temp);tempEl.textContent=c+'°C';const p=Math.min(100,Math.max(0,(temp-20)/(LOSE_TEMP-20)*100));heatbar.style.width=p+'%';heatbar.style.background=temp<32?'#EF9F27':'#E24B4A';fanind.style.display=fanActive>0?'inline':'none';}
+function start(){blobs=[];parts=[];dog=null;fan=null;boss=null;nextBoss=45;hose=null;hoseT=rnd(20,28);dragHose=false;fanActive=0;score=0;temp=START_TEMP;combo=0;spawnT=0;dogT=rnd(5,9);fanT=rnd(6,10);running=true;overlay.style.display='none';setMsg('Держи оборону. Волна долетела до потолка — плюс градус.');updateHud();lastT=performance.now();frame=requestAnimationFrame(loop);}
+function gameOver(){running=false;cancelAnimationFrame(frame);if(score>best)best=score;ovtitle.textContent=failMsgs[Math.floor(Math.random()*failMsgs.length)];ovtext.textContent='Счёт: '+score+(score>=best&&score>0?' — новый рекорд!':'')+' Кондиционер просит реванша.';startbtn.textContent='Ещё раз';overlay.style.display='flex';updateHud();}
+function loop(t){const dt=Math.min(0.05,(t-lastT)/1000);lastT=t;
+ fanAngle+=dt*(fanActive>0?25:8);
+ if(fanActive>0){fanActive-=dt;if(fanActive<=0){setMsg('Вентилятор выдохся. Дальше сам.');updateHud();}}
+ spawnT-=dt;const iv=Math.max(0.75,1.7-score*0.008)*(fanActive>0?1.7:1)*(boss?1.6:1);
+ if(spawnT<=0){spawnBlob();if(score>60&&Math.random()<0.2)spawnBlob();spawnT=iv;}
+ dogT-=dt;if(dogT<=0&&!dog){spawnDog();dogT=rnd(9,15);}
+ fanT-=dt;if(fanT<=0&&!fan&&fanActive<=0){spawnFan();fanT=rnd(13,18);}
+ if(fan){fan.t+=dt;fan.life-=dt;if(fan.life<=0){fan=null;setMsg('Вентилятор уплыл. Появится другой.');}}
+ if(!boss&&score>=nextBoss)spawnBoss();
+ if(boss){boss.t+=dt;boss.x=W/2+Math.sin(boss.t*0.8)*Math.min(120,W*0.25);if(boss.hurt>0)boss.hurt-=dt;boss.shootT-=dt;if(boss.shootT<=0){bossShoot();boss.shootT=rnd(1.6,2.4);}}
+ hoseT-=dt;if(hoseT<=0&&!hose){spawnHose();hoseT=rnd(28,38);}
+ if(hose){hose.t+=dt;
+  if(!hose.connected){hose.life-=dt;if(hose.life<=0){hose=null;setMsg('Шланг убрали — не успел. Появится другой.');}}
+  else{hose.suckLife-=dt;
+   for(let i=blobs.length-1;i>=0;i--){const b=blobs[i];if(b.frozen>0)continue;
+    const dx=hose.holeX-b.x,dy=hose.holeY-b.y,d=Math.hypot(dx,dy)||1;
+    if(d>hose.range)continue;
+    const pull=300*(1-d/hose.range*0.4);b.x+=dx/d*pull*dt;b.y+=dy/d*pull*dt;
+    if(d<hose.hr){blobs.splice(i,1);score+=1;burst(hose.holeX,hose.holeY,'#85B7EB',6);updateHud();}}
+   if(hose.suckLife<=0){hose=null;setMsg('Дыра закрылась. Хорошо проветрил!');}}}
+ for(const b of blobs){if(b.frozen>0){b.frozen-=dt;b.y+=120*dt;}
+  else{const wind=fanActive>0?70:0;b.y+=(b.vy+wind)*dt;b.wob+=b.ws*dt;b.x+=Math.sin(b.wob)*20*dt;}}
+ for(let i=blobs.length-1;i>=0;i--){const b=blobs[i];
+  if(b.frozen>0&&b.frozen<=0.01){blobs.splice(i,1);continue;}
+  if(b.frozen<=0&&b.y<-b.r){blobs.splice(i,1);temp+=1;shake=6;combo=0;if(temp>=LOSE_TEMP){updateHud();return gameOver();}updateHud();}
+  else if(b.y>H+b.r+60){blobs.splice(i,1);}}
+ if(dog){dog.x+=dog.vx*dt;dog.t+=dt;if(dog.x<-80||dog.x>W+80)dog=null;}
+ for(let i=parts.length-1;i>=0;i--){const p=parts[i];p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=200*dt;if(p.life<=0)parts.splice(i,1);}
+ comboT-=dt;if(comboT<=0)combo=0;
+ if(shake>0)shake-=dt*20;
+ draw();frame=requestAnimationFrame(loop);}
+function drawFan(x,y,r,alpha){ctx.save();ctx.translate(x,y);ctx.globalAlpha=alpha;
+ ctx.fillStyle='#B5D4F4';ctx.beginPath();ctx.arc(0,0,r,0,6.28);ctx.fill();
+ ctx.strokeStyle='#185FA5';ctx.lineWidth=2;ctx.stroke();
+ ctx.rotate(fanAngle);ctx.fillStyle='#378ADD';
+ for(let k=0;k<3;k++){ctx.rotate(2.094);ctx.beginPath();ctx.ellipse(0,-r*0.5,r*0.22,r*0.42,0,0,6.28);ctx.fill();}
+ ctx.rotate(-fanAngle);ctx.fillStyle='#042C53';ctx.beginPath();ctx.arc(0,0,r*0.14,0,6.28);ctx.fill();
+ ctx.restore();ctx.globalAlpha=1;}
+function drawBoss(){const b=boss,r=b.r*(1+0.04*Math.sin(b.t*4))+(b.hurt>0?4:0);ctx.save();ctx.translate(b.x,b.y);
+ ctx.fillStyle=b.hurt>0?'#FFE0A0':'#FFB03A';
+ for(let k=0;k<12;k++){ctx.rotate(6.28/12);ctx.beginPath();ctx.moveTo(0,-r);ctx.lineTo(6,-r-14-4*Math.sin(b.t*3+k));ctx.lineTo(-6,-r);ctx.fill();}
+ const g=ctx.createRadialGradient(0,0,r*0.3,0,0,r);g.addColorStop(0,'#FFD873');g.addColorStop(1,'#E24B4A');ctx.fillStyle=g;
+ ctx.beginPath();ctx.arc(0,0,r,0,6.28);ctx.fill();
+ ctx.fillStyle='#3a1a0a';
+ ctx.beginPath();ctx.arc(-r*0.35,-r*0.05,r*0.11,0,6.28);ctx.fill();
+ ctx.beginPath();ctx.arc(r*0.35,-r*0.05,r*0.11,0,6.28);ctx.fill();
+ ctx.strokeStyle='#3a1a0a';ctx.lineWidth=3;ctx.lineCap='round';
+ ctx.beginPath();ctx.moveTo(-r*0.55,-r*0.35);ctx.lineTo(-r*0.18,-r*0.18);ctx.stroke();
+ ctx.beginPath();ctx.moveTo(r*0.55,-r*0.35);ctx.lineTo(r*0.18,-r*0.18);ctx.stroke();
+ ctx.beginPath();ctx.arc(0,r*0.55,r*0.32,3.34,6.08);ctx.stroke();
+ ctx.restore();
+ const bw=b.r*2,bx=b.x-b.r,by=b.y-b.r-26;
+ ctx.fillStyle='rgba(0,0,0,0.4)';ctx.fillRect(bx,by,bw,6);
+ ctx.fillStyle='#5AD07A';ctx.fillRect(bx,by,bw*(b.hp/b.maxhp),6);}
+function drawHose(){const h=hose;ctx.save();
+ ctx.beginPath();ctx.ellipse(h.holeX,h.holeY,h.hr,h.hr*0.72,0,0,6.28);ctx.fillStyle='#0a0d12';ctx.fill();
+ ctx.strokeStyle=h.connected?'#5AD07A':'#8b98a5';ctx.lineWidth=3;ctx.stroke();
+ if(h.connected){
+  const zg=ctx.createRadialGradient(h.holeX,h.holeY,h.hr,h.holeX,h.holeY,h.range);zg.addColorStop(0,'rgba(90,208,122,0.16)');zg.addColorStop(1,'rgba(90,208,122,0)');
+  ctx.fillStyle=zg;ctx.beginPath();ctx.arc(h.holeX,h.holeY,h.range,0,6.28);ctx.fill();
+  ctx.strokeStyle='rgba(90,208,122,0.35)';ctx.lineWidth=1.5;ctx.setLineDash([6,6]);ctx.beginPath();ctx.arc(h.holeX,h.holeY,h.range,0,6.28);ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle='rgba(90,208,122,0.55)';ctx.lineWidth=2;
+  for(let k=0;k<3;k++){const a=-h.t*5+k*2.09;ctx.beginPath();ctx.arc(h.holeX,h.holeY,h.hr*0.62-k*5,a,a+3.4);ctx.stroke();}}
+ else{ctx.strokeStyle='rgba(139,152,165,0.5)';ctx.lineWidth=2;ctx.setLineDash([4,4]);
+  ctx.beginPath();ctx.moveTo(h.endX,h.endY);ctx.lineTo(h.holeX,h.holeY);ctx.stroke();ctx.setLineDash([]);}
+ const midX=(h.baseX+h.endX)/2,midY=Math.min(h.baseY,h.endY)-46;
+ ctx.lineCap='round';
+ ctx.strokeStyle='#3a434f';ctx.lineWidth=15;ctx.beginPath();ctx.moveTo(h.baseX,h.baseY);ctx.quadraticCurveTo(midX,midY,h.endX,h.endY);ctx.stroke();
+ ctx.strokeStyle='#5a6675';ctx.lineWidth=9;ctx.beginPath();ctx.moveTo(h.baseX,h.baseY);ctx.quadraticCurveTo(midX,midY,h.endX,h.endY);ctx.stroke();
+ ctx.fillStyle='#2e3742';ctx.fillRect(h.baseX-16,h.baseY-6,32,14);
+ ctx.beginPath();ctx.arc(h.endX,h.endY,11,0,6.28);ctx.fillStyle=h.connected?'#5AD07A':'#B5D4F4';ctx.fill();
+ ctx.strokeStyle='#185FA5';ctx.lineWidth=2.5;ctx.stroke();
+ ctx.restore();}
+function draw(){ctx.clearRect(0,0,W,H);ctx.save();if(shake>0)ctx.translate(rnd(-shake,shake),rnd(-shake,shake));
+ const heat=(temp-24)/(LOSE_TEMP-24);ctx.fillStyle='rgba(226,75,74,'+(0.04+heat*0.18)+')';ctx.fillRect(0,0,W,H);
+ if(fanActive>0){ctx.strokeStyle='rgba(55,138,221,0.35)';ctx.lineWidth=1.5;
+  for(let k=0;k<6;k++){const yy=((fanAngle*30+k*80)%(H+40))-20;ctx.beginPath();ctx.moveTo(30+k*(W-60)/5,yy);ctx.quadraticCurveTo(30+k*(W-60)/5+15,yy+20,30+k*(W-60)/5,yy+40);ctx.stroke();}}
+ ctx.fillStyle='rgba(136,135,128,0.25)';ctx.fillRect(0,H-8,W,8);
+ if(hose)drawHose();
+ if(boss)drawBoss();
+ for(const b of blobs){ctx.beginPath();
+  if(b.frozen>0){ctx.fillStyle='#85B7EB';ctx.arc(b.x,b.y,b.r*0.9,0,6.28);ctx.fill();ctx.strokeStyle='#185FA5';ctx.lineWidth=2;ctx.stroke();
+   ctx.strokeStyle='#E6F1FB';ctx.lineWidth=1.5;for(let k=0;k<3;k++){const a=k*2.09+b.wob;ctx.beginPath();ctx.moveTo(b.x-Math.cos(a)*b.r*0.6,b.y-Math.sin(a)*b.r*0.6);ctx.lineTo(b.x+Math.cos(a)*b.r*0.6,b.y+Math.sin(a)*b.r*0.6);ctx.stroke();}}
+  else{const g=1-Math.min(1,Math.max(0,b.y/H));ctx.fillStyle=g>0.6?'#E24B4A':'#EF9F27';ctx.moveTo(b.x,b.y-b.r);
+   for(let k=0;k<=12;k++){const a=k/12*6.28;const rr=b.r*(1+0.12*Math.sin(a*3+b.wob*2));ctx.lineTo(b.x+Math.cos(a)*rr,b.y+Math.sin(a)*rr);}
+   ctx.fill();
+   ctx.fillStyle='rgba(250,238,218,0.7)';ctx.beginPath();ctx.arc(b.x-b.r*0.25,b.y-b.r*0.2,b.r*0.35,0,6.28);ctx.fill();}}
+ if(fan){const pulse=1+0.06*Math.sin(fan.t*6);const blink=fan.life<2?(Math.sin(fan.t*14)*0.3+0.7):1;drawFan(fan.x,fan.y,26*pulse,blink);}
+ if(dog){const d=dog,bob=Math.sin(d.t*12)*3,dir=d.vx>0?1:-1;ctx.save();ctx.translate(d.x,d.y+bob);ctx.scale(dir,1);
+  ctx.fillStyle='#B4B2A9';ctx.beginPath();ctx.ellipse(0,0,26,14,0,0,6.28);ctx.fill();
+  ctx.beginPath();ctx.arc(24,-10,11,0,6.28);ctx.fill();
+  ctx.beginPath();ctx.moveTo(28,-19);ctx.lineTo(34,-28);ctx.lineTo(35,-16);ctx.fill();
+  ctx.strokeStyle='#B4B2A9';ctx.lineWidth=5;ctx.lineCap='round';
+  const lp=Math.sin(d.t*14)*8;ctx.beginPath();ctx.moveTo(-14,8);ctx.lineTo(-14+lp,22);ctx.stroke();ctx.beginPath();ctx.moveTo(12,8);ctx.lineTo(12-lp,22);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(-24,-4);ctx.quadraticCurveTo(-36,-14+Math.sin(d.t*16)*6,-38,-8);ctx.stroke();
+  ctx.fillStyle='#2C2C2A';ctx.beginPath();ctx.arc(33,-11,2.2,0,6.28);ctx.fill();ctx.beginPath();ctx.arc(28,-13,1.8,0,6.28);ctx.fill();
+  ctx.restore();}
+ for(const p of parts){ctx.globalAlpha=p.life/p.max;ctx.fillStyle=p.col;ctx.fillRect(p.x-2,p.y-2,4,4);ctx.globalAlpha=1;}
+ ctx.restore();}
+function hit(px,py){if(!running)return;
+ if(boss){const dx=px-boss.x,dy=py-boss.y;if(dx*dx+dy*dy<(boss.r+18)*(boss.r+18)){boss.hp--;boss.hurt=0.2;score+=2;burst(px,py,'#FFD27A',10);
+  if(boss.hp<=0){burst(boss.x,boss.y,'#FFB03A',44);score+=100;temp=Math.max(START_TEMP,temp-6);boss=null;nextBoss=score+80;shake=10;setMsg('☀️ Солнце повержено! +100 и минус 6°C. Красота!');}
+  updateHud();return;}}
+ if(fan){const dx=px-fan.x,dy=py-fan.y;if(dx*dx+dy*dy<48*48){fanActive=5;temp=Math.max(START_TEMP,temp-1);burst(fan.x,fan.y,'#85B7EB',20);fan=null;setMsg('Вентилятор включён! Жара сдувается вниз 5 секунд.');updateHud();return;}}
+ if(dog&&!dog.hit&&Math.abs(px-dog.x)<44&&Math.abs(py-dog.y)<34){dog.hit=true;score+=50;temp=Math.max(START_TEMP,temp-2);burst(dog.x,dog.y,'#9FE1CB',24);setMsg(dogMsgs[Math.floor(Math.random()*dogMsgs.length)]+' И минус 2°C.');updateHud();dog.vx*=1.6;return;}
+ for(let i=blobs.length-1;i>=0;i--){const b=blobs[i];if(b.frozen>0)continue;const dx=px-b.x,dy=py-b.y;
+  if(dx*dx+dy*dy<(b.r+22)*(b.r+22)){b.frozen=0.6;combo++;comboT=1.5;const pts=1+Math.floor(combo/3);score+=pts;
+   burst(b.x,b.y,'#85B7EB',14);
+   if(combo>0&&combo%5===0)setMsg('Комбо ×'+combo+'! '+praise[Math.floor(Math.random()*praise.length)]);
+   updateHud();return;}}}
+function pt(e){const r=cv.getBoundingClientRect();const t=e.touches&&e.touches[0]?e.touches[0]:e;return[t.clientX-r.left,t.clientY-r.top];}
+function onDown(x,y){if(!running)return;
+ if(hose&&!hose.connected){const dx=x-hose.endX,dy=y-hose.endY;if(dx*dx+dy*dy<44*44){dragHose=true;hose.endX=x;hose.endY=y;return;}}
+ hit(x,y);}
+function onMove(x,y){if(!dragHose||!hose||hose.connected)return;
+ hose.endX=x;hose.endY=y;
+ const dx=x-hose.holeX,dy=y-hose.holeY;
+ if(dx*dx+dy*dy<hose.hr*hose.hr){hose.connected=true;hose.suckLife=8;hose.endX=hose.holeX;hose.endY=hose.holeY;dragHose=false;shake=6;burst(hose.holeX,hose.holeY,'#85B7EB',22);setMsg('🌀 Шланг в дыре! Жара засасывается 8 секунд.');}}
+function onUp(){dragHose=false;}
+cv.addEventListener('mousedown',e=>{const[x,y]=pt(e);onDown(x,y);});
+cv.addEventListener('mousemove',e=>{const[x,y]=pt(e);onMove(x,y);});
+window.addEventListener('mouseup',onUp);
+cv.addEventListener('touchstart',e=>{e.preventDefault();const[x,y]=pt(e);onDown(x,y);},{passive:false});
+cv.addEventListener('touchmove',e=>{e.preventDefault();const[x,y]=pt(e);onMove(x,y);},{passive:false});
+cv.addEventListener('touchend',e=>{e.preventDefault();onUp();},{passive:false});
+startbtn.addEventListener('click',start);
+const stage=document.getElementById('stage'),fsbtn=document.getElementById('fsbtn');
+function inFs(){return !!(document.fullscreenElement||document.webkitFullscreenElement||stage.classList.contains('faux-fs'));}
+function syncFs(){fsbtn.textContent=inFs()?'✕':'⛶';setTimeout(resize,60);}
+function toggleFs(){
+ if(inFs()){
+  if(document.exitFullscreen)document.exitFullscreen();
+  else if(document.webkitExitFullscreen)document.webkitExitFullscreen();
+  stage.classList.remove('faux-fs');
+ }else{
+  if(stage.requestFullscreen)stage.requestFullscreen().catch(()=>stage.classList.add('faux-fs'));
+  else if(stage.webkitRequestFullscreen)stage.webkitRequestFullscreen();
+  else stage.classList.add('faux-fs');
+ }
+ syncFs();
+}
+fsbtn.addEventListener('click',toggleFs);
+document.addEventListener('fullscreenchange',syncFs);
+document.addEventListener('webkitfullscreenchange',syncFs);
+ready=true;
+draw();
+</script>
+</body>
+</html>
